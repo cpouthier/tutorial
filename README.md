@@ -406,7 +406,7 @@ echo ""
 sleep 4
 ```
 # One more thing...
-If you're already fed up with the idea to copy/paste instructions, just run the command below as superuser (sudo su):
+If you're already fed up with the idea to spend time to copy/paste instructions, just run the command below as superuser (sudo su), it will take roughly 10 min to set up everything (interactive):
 ```shell
 curl -s https://raw.githubusercontent.com/cpouthier/tutorial/main/installscript.sh | bash
 ```
