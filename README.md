@@ -1,4 +1,4 @@
-# Assisted deployment
+# Tutorial
 The aim of this tutorial is to guide you through a full deployment of Kasten on a single node K3s running on a Linux VM (tested with Ubuntu 22.04).
 K3s is a lightweight distribution of Kubernetes (K8s).
 ## Pre-requisites
@@ -408,5 +408,5 @@ sleep 4
 # One more thing...
 If you're already fed up with the idea to copy/paste instructions, just run the command below as superuser (sudo su):
 ```shell
-sudo curl -s https://raw.githubusercontent.com/cpouthier/ubuntu-k3s-minio-K10/main/installscript.sh | bash
+curl -s https://raw.githubusercontent.com/cpouthier/tutorial/main/installscript.sh | bash
 ```
