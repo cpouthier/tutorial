@@ -223,10 +223,6 @@ metadata:
   name: k10-eula-info
   namespace: kasten-io
 EOF
-clear
-echo ""
-echo "Kasten is now installed"
-sleep 2
 ```
 ### Create location profiles in Kasten
 #### Create the Minio access key and secret
