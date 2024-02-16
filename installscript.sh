@@ -68,7 +68,6 @@ echo "Kubectl installed!"
 sleep 2
 
 # Installing k3s single node cluster with local storage disabled 
-#OLD COMMAND curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable local-storage " sh -s -
 clear
 echo "Installing k3s"
 sleep 2
