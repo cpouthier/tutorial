@@ -1,4 +1,4 @@
-![alt text](http://url/to/img.png)
+![alt text](https://raw.githubusercontent.com/cpouthier/tutorial/main/k10gh.png)
 # Tutorial
 The aim of this tutorial is to guide you through a full deployment of Kasten on a single node K3s running on a Linux VM (tested with Ubuntu 22.04).
 K3s is a lightweight distribution of Kubernetes (K8s).
