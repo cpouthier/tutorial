@@ -2,10 +2,12 @@
 The aim of this tutorial is to guide you through a full deployment of Kasten on a single node K3s running on a Linux VM (tested with Ubuntu 22.04).
 K3s is a lightweight distribution of Kubernetes (K8s).
 ## Pre-requisites
-The main pre-requisite is obviously to get a VM or bare metal server with Linux installed and superuser access. The superuser access (su) will be used in order to run scipts below and the fdisk utility to provide a new partition we will format in zfs.
+The main pre-requisite is obviously to get a VM or bare metal server with Linux installed and superuser access. The superuser access (su) will be used in order to run scipts below and the fdisk utility to provide a new free partition we will format in zfs.
 You also need to ensure to get **at least 8GB of memory and about 100GB of disk** to install all the tools, K3s.
 All instructions below will be run as superuser (sudo su).
 ## Setup the environement
+Before doing anything use the fdisk utility in order to provide (or ensure) you'll get a fresh free new disk partition.
+
 First of all we need to tune a bit your Linux environement:
 ```shell
 sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
