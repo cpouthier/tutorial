@@ -164,17 +164,18 @@ mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable
 ```
 # Kasten installation
 This is actually my favourite part!
+## Add and update Helm repository
+```shell
+helm repo add kasten https://charts.kasten.io
+helm repo update
+```
 ## Running pre-flight checks
 Running pre-flight checks (also referred as primer) is a way to enure that you'll be able install properly Kasten on your environment:
 ```shell
 curl https://docs.kasten.io/tools/k10_primer.sh | bash
 ```
 Pay attention to the output in order to fix any problem before proceeding to Kasten installation.
-## Add and update Helm repository
-```shell
-helm repo add kasten https://charts.kasten.io
-helm repo update
-```
+
 ## Create the namespace for Kasten
 ```shell
 kubectl create ns kasten-io
