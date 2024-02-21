@@ -14,7 +14,7 @@ All instructions below will be run as superuser (sudo su).
 ## Setup the environement
 Before doing anything use the fdisk utility in order to provide (or ensure) you'll get a fresh free new unformatted disk partition.
 
-Then, we need to tune a bit your Linux environement:
+Then, let's tune a little bit your Linux environement:
 ```shell
 sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
 apt update
