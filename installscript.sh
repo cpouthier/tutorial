@@ -344,7 +344,7 @@ clear
 echo "Installing Pacman"
 sleep 2
 helm repo add pacman https://shuguet.github.io/pacman/
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
+helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.IngresClassName=nginx
 echo ""
 echo "Pacman is now installed!"
 sleep 2

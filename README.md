@@ -342,7 +342,7 @@ EOF
 You can now install an application to test Kasten backup/restore operations. We will use a simple pacman game application which contains also a MongoDB.
 ```shell
 helm repo add pacman https://shuguet.github.io/pacman/
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
+helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.IngresClassName=nginx
 ```
 This application will be exposed on the web on port 80 of your server.
 ## Create a daily backup policy for pacman
