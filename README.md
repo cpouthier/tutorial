@@ -215,6 +215,10 @@ spec:
 EOF
 ```
 ## (Optional) Pre-populate Kasten
+
+All the optional scripts belows are intended to automate and pre-populate Kasten in order to quickly deploy everything you need. 
+
+You can also use them as an example for your future deployments and industrialize things, but keep in mind that everything can be managed **directly and easily in the web GUI of Kasten**.
 ### Accept EULA
 ```shell
 echo | kubectl apply -f - << EOF
