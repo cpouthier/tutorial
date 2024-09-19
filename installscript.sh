@@ -377,7 +377,7 @@ spec:
     exportParameters:
       frequency: "@daily"
       profile:
-        name: minio-profile-standard
+        name: s3-standard-bucket
         namespace: kasten-io
       exportData:
         enabled: true
