@@ -405,6 +405,7 @@ echo ""
 echo "Have fun!"
 echo ""
 sleep 4
+exit
 ```
 # One more thing...
 If you're already fed up with the idea to spend time to copy/paste instructions, just run the command below as superuser (sudo su), it will take roughly 10 min to set up everything (interactive), but not sure you'll learn something (you'll need however to do the fdisk part manually before running this script):
