@@ -253,50 +253,41 @@ echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Profile
 metadata:
-  name: minio-profile-standard
+  name: s3-standard-bucket
   namespace: kasten-io
 spec:
-  type: Location
   locationSpec:
-    credential:
-      secretType: AwsAccessKey
-      secret:
-        apiVersion: v1
-        kind: Secret
-        name: k10-s3-secret-minio
-        namespace: kasten-io
-    type: ObjectStore
     objectStore:
-      endpoint: http://$get_ip:9000
-      name: s3-standard
       objectStoreType: S3
+      name: s3-standard
+      region: eu
+      endpoint: http://$get_ip:9000
       skipSSLVerify: true
+    type: ObjectStore
+  type: Location
 EOF
+
 
 #Create Location profile for Minio Immutable bucket
 echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Profile
 metadata:
-  name: minio-profile-immutable
+  name: s3-immutable-bucket
   namespace: kasten-io
 spec:
-  type: Location
   locationSpec:
-    credential:
-      secretType: AwsAccessKey
-      secret:
-        apiVersion: v1
-        kind: Secret
-        name: k10-s3-secret-minio
-        namespace: kasten-io
-    type: ObjectStore
     objectStore:
-      endpoint: http://$get_ip:9000
-      name: s3-immutable
       objectStoreType: S3
+      name: s3-standard
+      region: eu
+      endpoint: http://$get_ip:9000
       skipSSLVerify: true
+      protectionPeriod: 2160h
+    type: ObjectStore
+  type: Location
 EOF
+
 
 # Enable Kasten daily Kasten reports
 echo | kubectl apply -f - << EOF
@@ -410,3 +401,4 @@ echo ""
 echo "Have fun!"
 echo ""
 sleep 4
+exit
