@@ -292,13 +292,13 @@ spec:
       skipSSLVerify: true
       protectionPeriod: 2160h
     type: ObjectStore
-  credential:
-    secretType: AwsAccessKey
-    secret:
-      apiVersion: v1
-      kind: secret
-      name: k10-s3-secret-minio
-      namespace: kasten-io
+    credential:
+      secretType: AwsAccessKey
+      secret:
+        apiVersion: v1
+        kind: secret
+        name: k10-s3-secret-minio
+        namespace: kasten-io
   type: Location
 EOF
 
