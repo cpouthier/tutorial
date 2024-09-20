@@ -37,7 +37,7 @@ echo "Successfully generated htpasswd entry: $htpasswd"
 sleep 3
 fdisk -l
 echo ""
-echo -e "\033[0;31m Enter drive path of extra volume (ie /dev/sdb) to set up Kasten K10 zfs pool: \e[0m"
+echo -e "\033[0;31m Enter partition path of extra volume (ie /dev/sdbx) to set up Kasten K10 zfs pool: \e[0m"
 read DRIVE < /dev/tty
 
 # Install Helm
@@ -189,9 +189,9 @@ kubectl create ns kasten-io
 # Install Kasten in the kasten-io namespace with basic authentication
 helm install k10 kasten/k10 --namespace kasten-io --set "auth.basicAuth.enabled=true" --set auth.basicAuth.htpasswd=$htpasswd
 echo ""
-echo "Please wait for 30sec whilst we wait for the pods to spin up..."
+echo "Please wait for 2 minutes c whilst we wait for the pods to spin up..."
 echo "After this period the external URL for K10 access will display (DO NOT exit this script)"
-sleep 30
+sleep 120
 echo ""
 # Finding the Kasten K10 gateway namespace name
 pod=$(kubectl get po -n kasten-io |grep gateway | awk '{print $1}' )
@@ -345,45 +345,44 @@ spec:
 EOF
 
 # Install Pacman application
-clear 
-echo "Installing Pacman"
-sleep 2
-helm repo add pacman https://shuguet.github.io/pacman/
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.IngresClassName=nginx
-echo ""
-echo "Pacman is now installed!"
-sleep 2
+#clear 
+#echo "Installing Pacman"
+#sleep 2
+#helm repo add pacman https://shuguet.github.io/pacman/
+#helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.ingressclass=nginx
+#echo ""
+#echo "Pacman is now installed!"
+#sleep 2
 
 # Create a Daily backup policy for pacman
-echo | kubectl apply -f - << EOF
-apiVersion: config.kio.kasten.io/v1alpha1
-kind: Policy
-metadata:
-  name: pacman-backup-policy
-  namespace: kasten-io
-spec:
-  frequency: '@daily'
-  retention:
-    daily: 7
-  selector:
-    matchExpressions:
-      - key: k10.kasten.io/appNamespace
-        operator: In
-        values:
-          - pacman
-  actions:
-  - action: backup
-  - action: export
-    exportParameters:
-      frequency: "@daily"
-      profile:
-        name: s3-standard-bucket
-        namespace: kasten-io
-      exportData:
-        enabled: true
-    retention: {}
-  
-EOF
+#echo | kubectl apply -f - << EOF
+#apiVersion: config.kio.kasten.io/v1alpha1
+#kind: Policy
+#metadata:
+#  name: pacman-backup-policy
+#  namespace: kasten-io
+#spec:
+#  frequency: '@daily'
+#  retention:
+#    daily: 7
+#  selector:
+#    matchExpressions:
+#      - key: k10.kasten.io/appNamespace
+#        operator: In
+#        values:
+#          - pacman
+# actions:
+#  - action: backup
+#  - action: export
+#    exportParameters:
+#      frequency: "@daily"
+#     profile:
+#        name: s3-standard-bucket
+#        namespace: kasten-io
+#      exportData:
+#        enabled: true
+#    retention: {}  
+#EOF
 
 # Save credentials and URLs for further reference
 cat <<EOF > credentials
@@ -393,7 +392,6 @@ Minio console is available on  http://$get_ip:9001, with the same username/passw
         - s3-standard
         - s3-immutable (compliance 180 days)
     Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)
-Pacman is available on http://$get_ip
 EOF
 # Finish
 rm get_helm.sh
@@ -408,7 +406,6 @@ echo "    Minio has been configured with 2 buckets and according location profil
 echo "        - s3-standard"
 echo "        - s3-immutable (compliance 180 days)"
 echo "    Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
-echo "Pacman is available on http://$get_ip".
 echo ""
 echo "NOTE: All these informations are stored in the "credentials" file in this directory."
 echo ""
