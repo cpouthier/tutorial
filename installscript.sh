@@ -39,6 +39,12 @@ fdisk -l
 echo ""
 echo -e "\033[0;31m Enter partition path of extra volume (ie /dev/sdbx) to set up Kasten K10 zfs pool: \e[0m"
 read DRIVE < /dev/tty
+echo -e "\033[0;31m Enter name of this cluster: \e[0m"
+read cluster_name < /dev/tty
+echo -e "\033[0;31m Enter the name you would like to use for the storage class: \e[0m"
+read sc_name < /dev/tty
+echo ""
+sleep 5
 
 # Install Helm
 clear
@@ -49,11 +55,11 @@ chmod +x ./get_helm.sh
 ./get_helm.sh
 echo ""
 echo "Helm installed!"
-sleep 2
+sleep 5
 
 #Install Kubectl for Linux AMD64
 clear
-echo "Installing kubectl"
+echo "Installing kubectl fro Linux AMD64"
 sleep 2
 curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
 chmod +x ./kubectl
@@ -63,9 +69,12 @@ echo 'source <(kubectl completion bash)' >>~/.bashrc
 source <(kubectl completion bash)
 echo "alias k=kubectl" | tee -a .bashrc /root/.bashrc
 alias k=kubectl
-echo ""
+#insert below in .bashrc to facilitate future 
+#kctx () {
+#        kubectl config set-context --current --namespace=$1
+#} 
 echo "Kubectl installed!"
-sleep 2
+sleep 5
 
 # Installing k3s single node cluster with local storage disabled 
 clear
@@ -114,10 +123,10 @@ export PATH=$PATH:$HOME/minio-binaries/
 mc alias set my-minio http://127.0.0.1:9000 $username $password
 
 #Create standard S3 bucket
-mc mb my-minio/s3-standard
+mc mb my-minio/s3-standard-$cluster_name
 #create immutable S3 bucket for compliance
-mc mb --with-lock my-minio/s3-immutable
-mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable
+mc mb --with-lock my-minio/s3-immutable-$cluster_name
+mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable-$cluster_name
 echo ""
 echo "Minio installed and configured with 2 buckets!"
 sleep 2
@@ -136,7 +145,7 @@ echo | kubectl apply -f - << EOF
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: kasten-zfs
+  name: $sc_name
 parameters:
   recordsize: "4k"
   compression: "off"
@@ -150,7 +159,7 @@ echo | kubectl apply -f - << EOF
 kind: VolumeSnapshotClass
 apiVersion: snapshot.storage.k8s.io/v1
 metadata:
-  name: kasten-zfs-snapclass
+  name: $sc_name-zfs-snapclass
   annotations:
     snapshot.storage.kubernetes.io/is-default-class: “true”
     k10.kasten.io/is-snapshot-class: "true"
@@ -159,9 +168,9 @@ deletionPolicy: Delete
 EOF
 
 
-kubectl patch storageclass kasten-zfs -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+kubectl patch storageclass $sc_name -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 echo ""
-echo "ZFS installed!"
+echo "ZFS installed and configured with proper annotation!"
 sleep 2
 
 #Install NGINX
@@ -253,13 +262,13 @@ echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Profile
 metadata:
-  name: s3-standard-bucket
+  name: s3-standard-bucket-$cluster_name
   namespace: kasten-io
 spec:
   locationSpec:
     objectStore:
       objectStoreType: S3
-      name: s3-standard
+      name: s3-standard-$cluster_name
       region: eu
       endpoint: http://$get_ip:9000
       skipSSLVerify: true
@@ -280,13 +289,13 @@ echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Profile
 metadata:
-  name: s3-immutable-bucket
+  name: s3-immutable-bucket-$cluster_name
   namespace: kasten-io
 spec:
   locationSpec:
     objectStore:
       objectStoreType: S3
-      name: s3-immutable
+      name: s3-immutable-$cluster_name
       region: eu
       endpoint: http://$get_ip:9000
       skipSSLVerify: true
@@ -354,7 +363,114 @@ echo ""
 echo "Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)"
 sleep 2
 
-# Create a onDemand backup policy for pacman
+# Create MongoDB blueprint
+echo | kubectl apply -f - << EOF
+kind: Blueprint
+apiVersion: cr.kanister.io/v1alpha1
+metadata:
+  name: mongo-hooks
+  namespace: kasten-io
+actions:
+  backupPosthook:
+    name: ""
+    kind: ""
+    phases:
+      - func: KubeExec
+        name: unlockMongo
+        objects:
+          mongoDbSecret:
+            apiVersion: ""
+            group: ""
+            resource: ""
+            kind: Secret
+            name: "{{ .Deployment.Name }}"
+            namespace: "{{ .Deployment.Namespace }}"
+        args:
+          command:
+            - bash
+            - -o
+            - errexit
+            - -o
+            - pipefail
+            - -c
+            - >
+              export MONGODB_ROOT_PASSWORD='{{ index
+              .Phases.unlockMongo.Secrets.mongoDbSecret.Data
+              "mongodb-root-password" | toString }}'
+ 
+              mongosh --authenticationDatabase admin -u root -p
+              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncUnlock()"
+          container: mongodb
+          namespace: "{{ .Deployment.Namespace }}"
+          pod: "{{ index .Deployment.Pods 0 }}"
+  backupPrehook:
+    name: ""
+    kind: ""
+    phases:
+      - func: KubeExec
+        name: lockMongo
+        objects:
+          mongoDbSecret:
+            apiVersion: ""
+            group: ""
+            resource: ""
+            kind: Secret
+            name: "{{ .Deployment.Name }}"
+            namespace: "{{ .Deployment.Namespace }}"
+        args:
+          command:
+            - bash
+            - -o
+            - errexit
+            - -o
+            - pipefail
+            - -c
+            - >
+              export MONGODB_ROOT_PASSWORD='{{ index
+              .Phases.lockMongo.Secrets.mongoDbSecret.Data
+              "mongodb-root-password" | toString }}'
+ 
+              mongosh --authenticationDatabase admin -u root -p
+              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncLock()"
+          container: mongodb
+          namespace: "{{ .Deployment.Namespace }}"
+          pod: "{{ index .Deployment.Pods 0 }}"
+EOF
+
+# Create BluePrintBinding
+echo | kubectl apply -f - << EOF
+apiVersion: config.kio.kasten.io/v1alpha1
+kind: BlueprintBinding
+metadata:
+  name: mongodb-binding
+  namespace: kasten-io
+spec:
+  blueprintRef:
+    name: mongo-hooks
+    namespace: kasten-io
+  resources:
+    matchAll:
+    - type:
+        operator: In
+        values:
+        - group: apps
+          resource: deployments
+    - annotations:
+        key: kanister.kasten.io/blueprint
+        operator: DoesNotExist
+    - labels:
+        key: app.kubernetes.io/managed-by
+        operator: In
+        values:
+        - Helm
+    - labels:
+        key: app.kubernetes.io/name
+        operator: In
+        values:
+        - mongodb
+EOF
+
+# Create a daily backup policy for pacman
 echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Policy
@@ -363,13 +479,13 @@ metadata:
   namespace: kasten-io
 spec:
   comment: ""
-  frequency: "@onDemand"
+  frequency: "@daily"
   paused: false
   actions:
     - action: backup
     - action: export
       exportParameters:
-        frequency: "@onDemand"
+        frequency: "@daily"
         migrationToken:
           name: ""
           namespace: ""
@@ -379,7 +495,11 @@ spec:
         receiveString: ""
         exportData:
           enabled: true
-  retention: null
+  retention:
+    daily: 7
+    weekly: 0
+    monthly: 0
+    yearly: 0
   selector:
     matchExpressions:
       - key: k10.kasten.io/appNamespace
@@ -398,6 +518,7 @@ Minio console is available on  http://$get_ip:9001, with the same username/passw
         - s3-immutable (compliance 180 days)
     Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)
 Pacman is accessible at http://$get_ip
+Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
 # Finish
 rm get_helm.sh
@@ -413,6 +534,7 @@ echo "        - s3-standard"
 echo "        - s3-immutable (compliance 180 days)"
 echo "    Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
 echo "Pacman is accessible at http://$get_ip"
+echo "Your storage class name is $sc_name on this cluster $cluster_name"
 
 echo "NOTE: All these informations are stored in the "credentials" file in this directory."
 echo ""
