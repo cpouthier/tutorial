@@ -354,34 +354,39 @@ echo ""
 echo "Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)"
 sleep 2
 
-# Create a Daily backup policy for pacman
+# Create a onDemand backup policy for pacman
 echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Policy
 metadata:
-  name: pacman-backup-policy
+  name: pacman-backup
   namespace: kasten-io
 spec:
-  frequency: '@daily'
-  retention:
-    daily: 7
+  comment: ""
+  frequency: "@onDemand"
+  paused: false
+  actions:
+    - action: backup
+    - action: export
+      exportParameters:
+        frequency: "@onDemand"
+        migrationToken:
+          name: ""
+          namespace: ""
+        profile:
+          name: s3-standard-bucket
+          namespace: kasten-io
+        receiveString: ""
+        exportData:
+          enabled: true
+  retention: null
   selector:
     matchExpressions:
       - key: k10.kasten.io/appNamespace
         operator: In
         values:
           - pacman
- actions:
-  - action: backup
-  - action: export
-    exportParameters:
-      frequency: "@daily"
-     profile:
-        name: s3-standard-bucket
-        namespace: kasten-io
-      exportData:
-        enabled: true
-    retention: {}  
+  subFrequency: null
 EOF
 
 # Save credentials and URLs for further reference
@@ -392,6 +397,7 @@ Minio console is available on  http://$get_ip:9001, with the same username/passw
         - s3-standard
         - s3-immutable (compliance 180 days)
     Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)
+Pacman is accessible at http://$get_ip
 EOF
 # Finish
 rm get_helm.sh
@@ -406,7 +412,8 @@ echo "    Minio has been configured with 2 buckets and according location profil
 echo "        - s3-standard"
 echo "        - s3-immutable (compliance 180 days)"
 echo "    Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
-echo ""
+echo "Pacman is accessible at http://$get_ip"
+
 echo "NOTE: All these informations are stored in the "credentials" file in this directory."
 echo ""
 echo "Have fun!"
