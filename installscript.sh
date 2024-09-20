@@ -41,7 +41,7 @@ echo -e "\033[0;31m Enter partition path of extra volume (ie /dev/sdbx) to set u
 read DRIVE < /dev/tty
 echo -e "\033[0;31m Enter name of this cluster: \e[0m"
 read cluster_name < /dev/tty
-echo -e "\033[0;31m Enter the name you would like to use for the storage class: \e[0m"
+echo -e "\033[0;31m Customize the name you would like to use for the storage class: \e[0m"
 read sc_name < /dev/tty
 echo ""
 sleep 5
