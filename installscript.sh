@@ -189,9 +189,9 @@ kubectl create ns kasten-io
 # Install Kasten in the kasten-io namespace with basic authentication
 helm install k10 kasten/k10 --namespace kasten-io --set "auth.basicAuth.enabled=true" --set auth.basicAuth.htpasswd=$htpasswd
 echo ""
-echo "Please wait for 2 minutes c whilst we wait for the pods to spin up..."
+echo "Please wait for 5 minutes (grab a coffee) whilst we wait for the pods to spin up..."
 echo "After this period the external URL for K10 access will display (DO NOT exit this script)"
-sleep 120
+sleep 300
 echo ""
 # Finding the Kasten K10 gateway namespace name
 pod=$(kubectl get po -n kasten-io |grep gateway | awk '{print $1}' )
@@ -345,44 +345,44 @@ spec:
 EOF
 
 # Install Pacman application
-#clear 
-#echo "Installing Pacman"
-#sleep 2
-#helm repo add pacman https://shuguet.github.io/pacman/
-#helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.ingressclass=nginx
-#echo ""
-#echo "Pacman is now installed!"
-#sleep 2
+clear 
+echo "Installing Pacman"
+sleep 2
+helm repo add pacman https://shuguet.github.io/pacman/
+helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.ingressclass=nginx
+echo ""
+echo "Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)"
+sleep 2
 
 # Create a Daily backup policy for pacman
-#echo | kubectl apply -f - << EOF
-#apiVersion: config.kio.kasten.io/v1alpha1
-#kind: Policy
-#metadata:
-#  name: pacman-backup-policy
-#  namespace: kasten-io
-#spec:
-#  frequency: '@daily'
-#  retention:
-#    daily: 7
-#  selector:
-#    matchExpressions:
-#      - key: k10.kasten.io/appNamespace
-#        operator: In
-#        values:
-#          - pacman
-# actions:
-#  - action: backup
-#  - action: export
-#    exportParameters:
-#      frequency: "@daily"
-#     profile:
-#        name: s3-standard-bucket
-#        namespace: kasten-io
-#      exportData:
-#        enabled: true
-#    retention: {}  
-#EOF
+echo | kubectl apply -f - << EOF
+apiVersion: config.kio.kasten.io/v1alpha1
+kind: Policy
+metadata:
+  name: pacman-backup-policy
+  namespace: kasten-io
+spec:
+  frequency: '@daily'
+  retention:
+    daily: 7
+  selector:
+    matchExpressions:
+      - key: k10.kasten.io/appNamespace
+        operator: In
+        values:
+          - pacman
+ actions:
+  - action: backup
+  - action: export
+    exportParameters:
+      frequency: "@daily"
+     profile:
+        name: s3-standard-bucket
+        namespace: kasten-io
+      exportData:
+        enabled: true
+    retention: {}  
+EOF
 
 # Save credentials and URLs for further reference
 cat <<EOF > credentials
