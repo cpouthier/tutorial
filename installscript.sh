@@ -349,7 +349,7 @@ clear
 echo "Installing Pacman"
 sleep 2
 helm repo add pacman https://shuguet.github.io/pacman/
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.ingressclass=nginx
+helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
 echo ""
 echo "Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)"
 sleep 2
