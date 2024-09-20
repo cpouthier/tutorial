@@ -58,7 +58,7 @@ sleep 5
 
 #Install Kubectl for Linux AMD64
 clear
-echo "Installing kubectl fro Linux AMD64"
+echo "Installing kubectl for Linux AMD64"
 sleep 2
 curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
 chmod +x ./kubectl
@@ -485,7 +485,7 @@ spec:
           name: ""
           namespace: ""
         profile:
-          name: s3-standard-bucket$cluster_name
+          name: s3-standard-bucket-$cluster_name
           namespace: kasten-io
         receiveString: ""
         exportData:

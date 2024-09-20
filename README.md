@@ -502,7 +502,7 @@ spec:
           name: ""
           namespace: ""
         profile:
-          name: s3-standard-bucket$cluster_name
+          name: s3-standard-bucket-$cluster_name
           namespace: kasten-io
         receiveString: ""
         exportData:
