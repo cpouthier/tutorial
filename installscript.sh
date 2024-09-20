@@ -1,5 +1,5 @@
 #! /bin/bash
-# This script will:
+# This script will setup all you need to create a functionnal environement to try Veeam Kasten
 #   Setup apt and tune the environment
 #   Setup username, password and drive path as environement variables for further reference
 #   Install Helm
@@ -13,7 +13,7 @@
 #   Install Pacman app and expose it on port 80
 #   Set up a daily backup and export policy for Pacman
 # 
-# The following script will set the ubuntu service restart under apt to automatic
+# Set the ubuntu service restart under apt to automatic
 clear
 sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
 apt update
@@ -69,10 +69,8 @@ echo 'source <(kubectl completion bash)' >>~/.bashrc
 source <(kubectl completion bash)
 echo "alias k=kubectl" | tee -a .bashrc /root/.bashrc
 alias k=kubectl
-#insert below in .bashrc to facilitate future 
-#kctx () {
-#        kubectl config set-context --current --namespace=$1
-#} 
+#insert below in .bashrc to facilitate future (WIP)
+#echo "kctx () {kubectl config set-context --current --namespace=\$1}" | tee -a .bashrc /root/.bashrc
 echo "Kubectl installed!"
 sleep 5
 
