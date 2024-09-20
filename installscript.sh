@@ -44,7 +44,6 @@ read cluster_name < /dev/tty
 echo -e "\033[0;31m Customize the name you would like to use for the storage class: \e[0m"
 read sc_name < /dev/tty
 echo ""
-sleep 5
 
 # Install Helm
 clear
@@ -54,7 +53,7 @@ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scrip
 chmod +x ./get_helm.sh
 ./get_helm.sh
 echo ""
-echo "Helm installed!"
+echo -e "\033[0;32m Helm installed!\e[0m"
 sleep 5
 
 #Install Kubectl for Linux AMD64
@@ -68,10 +67,10 @@ sudo mv ./kubectl /usr/local/bin/kubectl
 echo 'source <(kubectl completion bash)' >>~/.bashrc
 source <(kubectl completion bash)
 echo "alias k=kubectl" | tee -a .bashrc /root/.bashrc
-alias k=kubectl
-#insert below in .bashrc to facilitate future (WIP)
+#alias k=kubectl
+#insert below in .bashrc to facilitate further manipulation (WIP)
 #echo "kctx () {kubectl config set-context --current --namespace=\$1}" | tee -a .bashrc /root/.bashrc
-echo "Kubectl installed!"
+echo -e "\033[0;32m Kubectl installed!\e[0m"
 sleep 5
 
 # Installing k3s single node cluster with local storage disabled 
@@ -90,8 +89,8 @@ k3s check-config
 kubectl cluster-info
 kubectl get nodes -o wide
 echo ""
-echo -e "\033[0;31m k3s installed, please review k3s information whitin the next 15sec... \e[0m"
-sleep 15
+echo -e "\033[0;32m k3s installed! \e[0m"
+sleep 5
 
 
 # Installing Minio for AMD64 outside K3s
@@ -126,7 +125,7 @@ mc mb my-minio/s3-standard-$cluster_name
 mc mb --with-lock my-minio/s3-immutable-$cluster_name
 mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable-$cluster_name
 echo ""
-echo "Minio installed and configured with 2 buckets!"
+echo -e "\033[0;32m Minio installed and configured with 2 buckets!\e[0m"
 sleep 2
 
 # Install zfs and configure kasten-pool storage pool on associated drive
@@ -177,27 +176,27 @@ echo "Installing NGINX"
 sleep 2
 helm upgrade --install ingress-nginx ingress-nginx --repo https://kubernetes.github.io/ingress-nginx --namespace nginx --create-namespace
 echo ""
-echo "NGINX installed!"
+echo -e "\033[0;32m NGINX installed!\e[0m"
 sleep 2
 
 # Install Kasten K10
 clear
-echo "Installing Kasten"
+echo "Installing Veeam Kasten"
 sleep 2
 # Adding and updating Helm repository
 helm repo add kasten https://charts.kasten.io
 helm repo update
-# Run Kasten k10 primer
-curl https://docs.kasten.io/tools/k10_primer.sh | bash
-echo "Please exit this script within the next 15sec to fix any error before installing Kasten K10."
-sleep 15
+# Run Kasten k10 primer (optional)
+#curl https://docs.kasten.io/tools/k10_primer.sh | bash
+#echo "Please exit this script within the next 15sec to fix any error before installing Kasten K10."
+#sleep 15
 # Create kasten-io namespace
 kubectl create ns kasten-io
 # Install Kasten in the kasten-io namespace with basic authentication
 helm install k10 kasten/k10 --namespace kasten-io --set "auth.basicAuth.enabled=true" --set auth.basicAuth.htpasswd=$htpasswd
 echo ""
-echo "Please wait for 5 minutes (grab a coffee) whilst we wait for the pods to spin up..."
-echo "After this period the external URL for K10 access will display (DO NOT exit this script)"
+echo "Please wait for 5 minutes (grab a coffee) while we wait for the pods to spin up..."
+echo -e "\033[0;31m ********** DO NOT EXIT THIS SCRIPT **********\e[0m"
 sleep 300
 echo ""
 # Finding the Kasten K10 gateway namespace name
@@ -239,9 +238,6 @@ metadata:
   namespace: kasten-io
 EOF
 clear
-echo ""
-echo "Kasten is now installed"
-sleep 2
 
 ###Create Profiles in Kasten
 
@@ -351,6 +347,10 @@ spec:
         statsIntervalDays: 1
 EOF
 
+echo ""
+echo -e "\033[0;32m Veeam Kasten is now installed\e[0m"
+sleep 2
+
 # Install Pacman application
 clear 
 echo "Installing Pacman"
@@ -358,7 +358,7 @@ sleep 2
 helm repo add pacman https://shuguet.github.io/pacman/
 helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
 echo ""
-echo "Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)"
+echo -e "\033[0;32m Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)\e[0m"
 sleep 2
 
 # Create MongoDB blueprint
@@ -488,7 +488,7 @@ spec:
           name: ""
           namespace: ""
         profile:
-          name: s3-standard-bucket
+          name: s3-standard-bucket$cluster_name
           namespace: kasten-io
         receiveString: ""
         exportData:
@@ -523,8 +523,11 @@ rm get_helm.sh
 rm k10primer.yaml
 clear
 echo ""
-echo "Congratulations"
-echo "You can now use Kasten and all its features!"
+echo ""
+echo -e "\033[0;32m Congratulations\e[0m"
+echo -e "\033[0;32m You can now use Veeam Kasten and all its features!\e[0m"
+echo ""
+echo ""
 echo "Kasten k10 can be accessed on http://$get_ip:8000/k10/#/ using credentials ($username/$password)."
 echo "Minio console is available on  http://$get_ip:9001, with the same username/password."
 echo "    Minio has been configured with 2 buckets and according location profiles have been created in Kasten:"
