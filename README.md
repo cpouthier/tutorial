@@ -1,18 +1,18 @@
 ![alt text](https://raw.githubusercontent.com/cpouthier/tutorial/main/k10gh.png)
 # Tutorial
-The aim of this tutorial is to guide you through a full deployment of Kasten on a single node K3s running on a Linux VM (tested with Ubuntu 22.04).
+The aim of this tutorial is to guide you through a full deployment of Kasten on a single node K3s running on a Linux VM (tested with Ubuntu 24.04).
 K3s is a lightweight distribution of Kubernetes (K8s).
 
 All scripts are inspired (and copied) from my fellow colleague James Tate (https://blog.kodu.uk/kasten-k10-guide-for-beginners-part-2/)
 
 Please have a read to this entire tutorial before setting up your environment.
 ## Pre-requisites
-The main pre-requisite is obviously to get a VM or bare metal server with Linux installed and superuser access. The superuser access (su) will be used in order to run scipts below and the fdisk utility to provide a new free partition (fdisk -l or fidsk /dev/xxx) we will format later on in zfs.
+The main pre-requisite is obviously to get a VM or bare metal server with Linux installed and superuser access. The superuser access (su) will be used in order to run scipts below and the fdisk utility to **provide a new free partition** (fdisk -l or fidsk /dev/xxx) we will format later on in zfs.
 
-You also need to ensure to get **at least 8GB of memory and about 100GB of disk** to install all the tools, K3s, Minio...
+You also need to ensure to get **at least 8GB of free memory and about 100GB of disk** to install all the tools, K3s, Minio...
 All instructions below will be run as superuser (sudo su).
 ## Setup the environement
-Before doing anything use the fdisk utility in order to provide (or ensure) you'll get a fresh free new unformatted disk partition.
+**Before doing anything use the fdisk utility in order to provide (or ensure) you'll get a fresh free new unformatted disk partition.**
 
 Then, let's tune a little bit your Linux environement:
 ```console
@@ -25,8 +25,10 @@ echo "fs.inotify.max_user_instances = 512" >> /etc/sysctl.conf
 apt install apache2-utils -y
 ```
 ## Setup some environment variables
-Now we need to set up some environement variables that we will use later in this tutorial. Kasten will be installed with basic authentication, hence the need to provide a username and a password. Same credentials will be used too to connect to Minio:
+Now we need to set up some environement variables that we will use later in this tutorial. Veeam Kasten will be installed with basic authentication, hence the need to provide a username and a password. Same credentials will be used too to connect to Minio:
 ```console
+echo "Kasten will be installed with basic authentication, hence the need to provide a username and a password."
+echo "You will use also those credentials to connect to Minio."
 echo -e "\033[0;31m Enter the username: \e[0m"
 read username < /dev/tty
 echo -e "\033[0;31m Enter the password: \e[0m"
@@ -34,6 +36,7 @@ read password < /dev/tty
 htpasswd_entry=$(htpasswd -nbm "$username" "$password" | cut -d ":" -f 2)
 htpasswd="$username:$htpasswd_entry"
 echo "Successfully generated htpasswd entry: $htpasswd"
+sleep 3
 ```
 **WARNING: ensure you do not exit your console otherwise you'll loose those variable and you won't be able to perform a clean install with all instructions below!**
 
@@ -41,9 +44,20 @@ We also need to get the fresh new partition you created with fdisk utility to se
 ```console
 fdisk -l
 echo ""
-echo -e "\033[0;31m Identify and enter drive path of extra volume (ie /dev/sdb) to set up Kasten K10 zfs pool: \e[0m"
+echo -e "\033[0;31m Enter partition path of extra volume (ie /dev/sdbx) to set up Kasten K10 zfs pool: \e[0m"
 read DRIVE < /dev/tty
 ```
+
+Additionnaly specify the name of this cluster and the storage class name you wish to customize.
+
+```console
+echo -e "\033[0;31m Enter name of this cluster: \e[0m"
+read cluster_name < /dev/tty
+echo -e "\033[0;31m Customize the name you would like to use for the storage class: \e[0m"
+read sc_name < /dev/tty
+echo ""
+```
+
 # Install some tools
 ## Install Helm
 First of all we will install Helm which is a packet manager for Kubernetes:
@@ -89,12 +103,11 @@ zpool create kasten-pool $DRIVE
 ### Configure zfs storage class
 ```console
 kubectl apply -f https://openebs.github.io/charts/zfs-operator.yaml
-
 echo | kubectl apply -f - << EOF
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: kasten-zfs
+  name: $sc_name
 parameters:
   recordsize: "4k"
   compression: "off"
@@ -110,7 +123,7 @@ echo | kubectl apply -f - << EOF
 kind: VolumeSnapshotClass
 apiVersion: snapshot.storage.k8s.io/v1
 metadata:
-  name: kasten-zfs-snapclass
+  name: $sc_name-zfs-snapclass
   annotations:
     snapshot.storage.kubernetes.io/is-default-class: “true”
     k10.kasten.io/is-snapshot-class: "true"
@@ -118,9 +131,11 @@ driver: zfs.csi.openebs.io
 deletionPolicy: Delete
 EOF
 ```
+
+
 ### Annotate the Storage Class
 ```console
-kubectl patch storageclass kasten-zfs -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+kkubectl patch storageclass $sc_name -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 # Installing Nginx
 We will now install Nginx as our ingress controller for our K3s cluster:
@@ -143,7 +158,6 @@ export PATH=$PATH:$HOME/minio-binaries/
 curl https://dl.min.io/client/mc/release/linux-amd64/mc \
   --create-dirs \
   -o $HOME/minio-binaries/mc
-
 chmod +x $HOME/minio-binaries/mc
 export PATH=$PATH:$HOME/minio-binaries/
 mc alias set my-minio http://127.0.0.1:9000 $username $password
@@ -155,14 +169,14 @@ mc alias set my-minio http://127.0.0.1:9000 $username $password
 ```
 We will create now a standard S3 bucket:
 ```console
-mc mb my-minio/s3-standard
+mc mb my-minio/s3-standard-$cluster_name
 ```
 And an immutable bucket:
 ```console
-mc mb --with-lock my-minio/s3-immutable
-mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable
+mc mb --with-lock my-minio/s3-immutable-$cluster_name
+mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable-$cluster_name
 ```
-# Kasten installation
+# Veeam Kasten installation
 This is actually my favourite part!
 ## Add and update Helm repository
 ```console
@@ -170,13 +184,13 @@ helm repo add kasten https://charts.kasten.io
 helm repo update
 ```
 ## Running pre-flight checks
-Running pre-flight checks (also referred as primer) is a way to enure that you'll be able install properly Kasten on your environment:
+Running pre-flight checks (also referred as primer) is a way to enure that you'll be able install properly Veeam Kasten on your environment:
 ```console
 curl https://docs.kasten.io/tools/k10_primer.sh | bash
 ```
-Pay attention to the output in order to fix any problem before proceeding to Kasten installation.
+Pay attention to the output in order to fix any problem before proceeding to Veeam Kasten installation.
 
-## Create the namespace for Kasten
+## Create the namespace for Veeam Kasten
 ```console
 kubectl create ns kasten-io
 ```
@@ -225,7 +239,7 @@ echo | kubectl apply -f - << EOF
 apiVersion: v1
 data:
   accepted: "true"
-  company: Kasten
+  company: MyBigCompany
   email: my_email@mybigcompany.fr
 kind: ConfigMap
 metadata:
@@ -240,7 +254,7 @@ EOF
 minio_access_key_id=$(echo $username)
 minio_access_key_secret=$(echo $password)
 ```
-##### Create Minio secret for K10
+##### Create Minio secret for Veeam Kasten
 ```console
 kubectl create secret generic k10-s3-secret-minio \
       --namespace kasten-io \
@@ -251,21 +265,27 @@ kubectl create secret generic k10-s3-secret-minio \
 #### Create Location profile for Minio standard bucket
 ```console
 echo | kubectl apply -f - << EOF
-echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Profile
 metadata:
-  name: s3-standard-bucket
+  name: s3-standard-bucket-$cluster_name
   namespace: kasten-io
 spec:
   locationSpec:
     objectStore:
       objectStoreType: S3
-      name: s3-standard
+      name: s3-standard-$cluster_name
       region: eu
       endpoint: http://$get_ip:9000
       skipSSLVerify: true
     type: ObjectStore
+    credential:
+      secretType: AwsAccessKey
+      secret:
+        apiVersion: v1
+        kind: secret
+        name: k10-s3-secret-minio
+        namespace: kasten-io
   type: Location
 EOF
 ```
@@ -276,18 +296,25 @@ echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Profile
 metadata:
-  name: s3-immutable-bucket
+  name: s3-immutable-bucket-$cluster_name
   namespace: kasten-io
 spec:
   locationSpec:
     objectStore:
       objectStoreType: S3
-      name: s3-standard
+      name: s3-immutable-$cluster_name
       region: eu
       endpoint: http://$get_ip:9000
       skipSSLVerify: true
       protectionPeriod: 2160h
     type: ObjectStore
+    credential:
+      secretType: AwsAccessKey
+      secret:
+        apiVersion: v1
+        kind: secret
+        name: k10-s3-secret-minio
+        namespace: kasten-io
   type: Location
 EOF
 ```
@@ -338,42 +365,163 @@ EOF
 You can now install an application to test Kasten backup/restore operations. We will use a simple pacman game application which contains also a MongoDB.
 ```console
 helm repo add pacman https://shuguet.github.io/pacman/
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set spec.IngresClassName=nginx
+helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
 ```
 This application will be exposed on the web on port 80 of your server.
 ## Create a daily backup policy for pacman
 This policy will create a dayly backup of pacman in crash consistent mode. Kasten is also able to manage application consistent backup with the use of blueprints (pre-snapshot and post- snapshot hooks) but this is not detailed (useful) in this example.
+### Create a MongoDB blueprint to allow constitent backup
+```console
+echo | kubectl apply -f - << EOF
+kind: Blueprint
+apiVersion: cr.kanister.io/v1alpha1
+metadata:
+  name: mongo-hooks
+  namespace: kasten-io
+actions:
+  backupPosthook:
+    name: ""
+    kind: ""
+    phases:
+      - func: KubeExec
+        name: unlockMongo
+        objects:
+          mongoDbSecret:
+            apiVersion: ""
+            group: ""
+            resource: ""
+            kind: Secret
+            name: "{{ .Deployment.Name }}"
+            namespace: "{{ .Deployment.Namespace }}"
+        args:
+          command:
+            - bash
+            - -o
+            - errexit
+            - -o
+            - pipefail
+            - -c
+            - >
+              export MONGODB_ROOT_PASSWORD='{{ index
+              .Phases.unlockMongo.Secrets.mongoDbSecret.Data
+              "mongodb-root-password" | toString }}'
+ 
+              mongosh --authenticationDatabase admin -u root -p
+              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncUnlock()"
+          container: mongodb
+          namespace: "{{ .Deployment.Namespace }}"
+          pod: "{{ index .Deployment.Pods 0 }}"
+  backupPrehook:
+    name: ""
+    kind: ""
+    phases:
+      - func: KubeExec
+        name: lockMongo
+        objects:
+          mongoDbSecret:
+            apiVersion: ""
+            group: ""
+            resource: ""
+            kind: Secret
+            name: "{{ .Deployment.Name }}"
+            namespace: "{{ .Deployment.Namespace }}"
+        args:
+          command:
+            - bash
+            - -o
+            - errexit
+            - -o
+            - pipefail
+            - -c
+            - >
+              export MONGODB_ROOT_PASSWORD='{{ index
+              .Phases.lockMongo.Secrets.mongoDbSecret.Data
+              "mongodb-root-password" | toString }}'
+ 
+              mongosh --authenticationDatabase admin -u root -p
+              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncLock()"
+          container: mongodb
+          namespace: "{{ .Deployment.Namespace }}"
+          pod: "{{ index .Deployment.Pods 0 }}"
+EOF
+```
+### Create a Blueprint Binding to automatically bind the MongoDB Blueprint to the MongoDB database
+
+```console
+echo | kubectl apply -f - << EOF
+apiVersion: config.kio.kasten.io/v1alpha1
+kind: BlueprintBinding
+metadata:
+  name: mongodb-binding
+  namespace: kasten-io
+spec:
+  blueprintRef:
+    name: mongo-hooks
+    namespace: kasten-io
+  resources:
+    matchAll:
+    - type:
+        operator: In
+        values:
+        - group: apps
+          resource: deployments
+    - annotations:
+        key: kanister.kasten.io/blueprint
+        operator: DoesNotExist
+    - labels:
+        key: app.kubernetes.io/managed-by
+        operator: In
+        values:
+        - Helm
+    - labels:
+        key: app.kubernetes.io/name
+        operator: In
+        values:
+        - mongodb
+EOF
+```
+### Create the baclup policy for Pacman
+
 ```console
 echo | kubectl apply -f - << EOF
 apiVersion: config.kio.kasten.io/v1alpha1
 kind: Policy
 metadata:
-  name: pacman-backup-policy
+  name: pacman-backup
   namespace: kasten-io
 spec:
-  frequency: '@daily'
+  comment: ""
+  frequency: "@daily"
+  paused: false
+  actions:
+    - action: backup
+    - action: export
+      exportParameters:
+        frequency: "@daily"
+        migrationToken:
+          name: ""
+          namespace: ""
+        profile:
+          name: s3-standard-bucket$cluster_name
+          namespace: kasten-io
+        receiveString: ""
+        exportData:
+          enabled: true
   retention:
     daily: 7
+    weekly: 0
+    monthly: 0
+    yearly: 0
   selector:
     matchExpressions:
       - key: k10.kasten.io/appNamespace
         operator: In
         values:
           - pacman
-  actions:
-  - action: backup
-  - action: export
-    exportParameters:
-      frequency: "@daily"
-      profile:
-        name: minio-profile-standard
-        namespace: kasten-io
-      exportData:
-        enabled: true
-    retention: {}
-  
+  subFrequency: null
 EOF
 ```
+
 # Final stage
 We will now save all credentials and URLs in a file for further reference and clean up
 ```console
@@ -384,28 +532,26 @@ Minio console is available on  http://$get_ip:9001, with the same username/passw
         - s3-standard
         - s3-immutable (compliance 180 days)
     Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)
-Pacman is available on http://$get_ip
+Pacman is accessible at http://$get_ip
+Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
 rm get_helm.sh
 rm k10primer.yaml
 clear
 echo ""
-echo "Congratulations"
-echo "You can now use Kasten and all its features!"
+echo ""
+echo -e "\033[0;32m Congratulations\e[0m"
+echo -e "\033[0;32m You can now use Veeam Kasten and all its features!\e[0m"
+echo ""
+echo ""
 echo "Kasten k10 can be accessed on http://$get_ip:8000/k10/#/ using credentials ($username/$password)."
 echo "Minio console is available on  http://$get_ip:9001, with the same username/password."
 echo "    Minio has been configured with 2 buckets and according location profiles have been created in Kasten:"
 echo "        - s3-standard"
 echo "        - s3-immutable (compliance 180 days)"
 echo "    Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
-echo "Pacman is available on http://$get_ip".
-echo ""
-echo "NOTE: All these informations are stored in the "credentials" file in this directory."
-echo ""
-echo "Have fun!"
-echo ""
-sleep 4
-exit
+echo "Pacman is accessible at http://$get_ip"
+echo "Your storage class name is $sc_name on this cluster $cluster_name"
 ```
 # One more thing...
 If you're already fed up with the idea to spend time to copy/paste instructions, just run the command below as superuser (sudo su), it will take roughly 10 min to set up everything (interactive), but not sure you'll learn something (you'll need however to do the fdisk part manually before running this script):

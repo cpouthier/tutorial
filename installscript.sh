@@ -114,7 +114,6 @@ export PATH=$PATH:$HOME/minio-binaries/
 curl https://dl.min.io/client/mc/release/linux-amd64/mc \
   --create-dirs \
   -o $HOME/minio-binaries/mc
-
 chmod +x $HOME/minio-binaries/mc
 export PATH=$PATH:$HOME/minio-binaries/
 mc alias set my-minio http://127.0.0.1:9000 $username $password
@@ -137,7 +136,6 @@ zpool create kasten-pool $DRIVE
 
 # Configure zfs storage class
 kubectl apply -f https://openebs.github.io/charts/zfs-operator.yaml
-
 echo | kubectl apply -f - << EOF
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -163,7 +161,6 @@ metadata:
 driver: zfs.csi.openebs.io
 deletionPolicy: Delete
 EOF
-
 
 kubectl patch storageclass $sc_name -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 echo ""
@@ -230,7 +227,7 @@ echo | kubectl apply -f - << EOF
 apiVersion: v1
 data:
   accepted: "true"
-  company: Kasten
+  company: MyBigCompany
   email: my_email@mybigcompany.fr
 kind: ConfigMap
 metadata:
