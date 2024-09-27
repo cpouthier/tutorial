@@ -358,112 +358,112 @@ echo ""
 echo -e "\033[0;32m Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)\e[0m"
 sleep 2
 
-# Create MongoDB blueprint
-echo | kubectl apply -f - << EOF
-kind: Blueprint
-apiVersion: cr.kanister.io/v1alpha1
-metadata:
-  name: mongo-hooks
-  namespace: kasten-io
-actions:
-  backupPosthook:
-    name: ""
-    kind: ""
-    phases:
-      - func: KubeExec
-        name: unlockMongo
-        objects:
-          mongoDbSecret:
-            apiVersion: ""
-            group: ""
-            resource: ""
-            kind: Secret
-            name: "{{ .Deployment.Name }}"
-            namespace: "{{ .Deployment.Namespace }}"
-        args:
-          command:
-            - bash
-            - -o
-            - errexit
-            - -o
-            - pipefail
-            - -c
-            - >
-              export MONGODB_ROOT_PASSWORD='{{ index
-              .Phases.unlockMongo.Secrets.mongoDbSecret.Data
-              "mongodb-root-password" | toString }}'
+# # Create MongoDB blueprint
+# echo | kubectl apply -f - << EOF
+# kind: Blueprint
+# apiVersion: cr.kanister.io/v1alpha1
+# metadata:
+#   name: mongo-hooks
+#   namespace: kasten-io
+# actions:
+#   backupPosthook:
+#     name: ""
+#     kind: ""
+#     phases:
+#       - func: KubeExec
+#         name: unlockMongo
+#         objects:
+#           mongoDbSecret:
+#             apiVersion: ""
+#             group: ""
+#             resource: ""
+#             kind: Secret
+#             name: "{{ .Deployment.Name }}"
+#             namespace: "{{ .Deployment.Namespace }}"
+#         args:
+#           command:
+#             - bash
+#             - -o
+#             - errexit
+#             - -o
+#             - pipefail
+#             - -c
+#             - >
+#               export MONGODB_ROOT_PASSWORD='{{ index
+#               .Phases.unlockMongo.Secrets.mongoDbSecret.Data
+#               "mongodb-root-password" | toString }}'
  
-              mongosh --authenticationDatabase admin -u root -p
-              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncUnlock()"
-          container: mongodb
-          namespace: "{{ .Deployment.Namespace }}"
-          pod: "{{ index .Deployment.Pods 0 }}"
-  backupPrehook:
-    name: ""
-    kind: ""
-    phases:
-      - func: KubeExec
-        name: lockMongo
-        objects:
-          mongoDbSecret:
-            apiVersion: ""
-            group: ""
-            resource: ""
-            kind: Secret
-            name: "{{ .Deployment.Name }}"
-            namespace: "{{ .Deployment.Namespace }}"
-        args:
-          command:
-            - bash
-            - -o
-            - errexit
-            - -o
-            - pipefail
-            - -c
-            - >
-              export MONGODB_ROOT_PASSWORD='{{ index
-              .Phases.lockMongo.Secrets.mongoDbSecret.Data
-              "mongodb-root-password" | toString }}'
+#               mongosh --authenticationDatabase admin -u root -p
+#               "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncUnlock()"
+#           container: mongodb
+#           namespace: "{{ .Deployment.Namespace }}"
+#           pod: "{{ index .Deployment.Pods 0 }}"
+#   backupPrehook:
+#     name: ""
+#     kind: ""
+#     phases:
+#       - func: KubeExec
+#         name: lockMongo
+#         objects:
+#           mongoDbSecret:
+#             apiVersion: ""
+#             group: ""
+#             resource: ""
+#             kind: Secret
+#             name: "{{ .Deployment.Name }}"
+#             namespace: "{{ .Deployment.Namespace }}"
+#         args:
+#           command:
+#             - bash
+#             - -o
+#             - errexit
+#             - -o
+#             - pipefail
+#             - -c
+#             - >
+#               export MONGODB_ROOT_PASSWORD='{{ index
+#               .Phases.lockMongo.Secrets.mongoDbSecret.Data
+#               "mongodb-root-password" | toString }}'
  
-              mongosh --authenticationDatabase admin -u root -p
-              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncLock()"
-          container: mongodb
-          namespace: "{{ .Deployment.Namespace }}"
-          pod: "{{ index .Deployment.Pods 0 }}"
-EOF
+#               mongosh --authenticationDatabase admin -u root -p
+#               "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncLock()"
+#           container: mongodb
+#           namespace: "{{ .Deployment.Namespace }}"
+#           pod: "{{ index .Deployment.Pods 0 }}"
+# EOF
 
-# Create BluePrintBinding
-echo | kubectl apply -f - << EOF
-apiVersion: config.kio.kasten.io/v1alpha1
-kind: BlueprintBinding
-metadata:
-  name: mongodb-binding
-  namespace: kasten-io
-spec:
-  blueprintRef:
-    name: mongo-hooks
-    namespace: kasten-io
-  resources:
-    matchAll:
-    - type:
-        operator: In
-        values:
-        - group: apps
-          resource: deployments
-    - annotations:
-        key: kanister.kasten.io/blueprint
-        operator: DoesNotExist
-    - labels:
-        key: app.kubernetes.io/managed-by
-        operator: In
-        values:
-        - Helm
-    - labels:
-        key: app.kubernetes.io/name
-        operator: In
-        values:
-        - mongodb
-EOF
+# # Create BluePrintBinding
+# echo | kubectl apply -f - << EOF
+# apiVersion: config.kio.kasten.io/v1alpha1
+# kind: BlueprintBinding
+# metadata:
+#   name: mongodb-binding
+#   namespace: kasten-io
+# spec:
+#   blueprintRef:
+#     name: mongo-hooks
+#     namespace: kasten-io
+#   resources:
+#     matchAll:
+#     - type:
+#         operator: In
+#         values:
+#         - group: apps
+#           resource: deployments
+#     - annotations:
+#         key: kanister.kasten.io/blueprint
+#         operator: DoesNotExist
+#     - labels:
+#         key: app.kubernetes.io/managed-by
+#         operator: In
+#         values:
+#         - Helm
+#     - labels:
+#         key: app.kubernetes.io/name
+#         operator: In
+#         values:
+#         - mongodb
+# EOF
 
 # Create a daily backup policy for pacman
 echo | kubectl apply -f - << EOF
