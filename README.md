@@ -135,7 +135,7 @@ EOF
 
 ### Annotate the Storage Class
 ```console
-kkubectl patch storageclass $sc_name -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+kubectl patch storageclass $sc_name -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 # Installing Nginx
 We will now install Nginx as our ingress controller for our K3s cluster:
