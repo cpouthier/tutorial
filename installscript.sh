@@ -60,7 +60,7 @@ sleep 5
 clear
 echo "Installing kubectl for Linux AMD64"
 sleep 2
-curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
 chmod +x ./kubectl
 sudo mv ./kubectl /usr/local/bin/kubectl
 # Adding kubectl autocompletion to bash
@@ -109,8 +109,6 @@ MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --co
 echo "@reboot MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --console-address ":9001"" > /root/minio_cron
 crontab /root/minio_cron
 get_ip=$(hostname -I | awk '{print $1}')
-chmod +x $HOME/minio-binaries/mc
-export PATH=$PATH:$HOME/minio-binaries/
 curl https://dl.min.io/client/mc/release/linux-amd64/mc \
   --create-dirs \
   -o $HOME/minio-binaries/mc
@@ -357,15 +355,7 @@ helm repo update
 helm pull pacman/pacman --untar
 cd pacman
 #create a values-override.yaml file to customize your deployment with:
-cat > values-override.yaml <<'EOF'
-mongodb:
-  image:
-    registry: docker.io
-    repository: bitnamilegacy/mongodb
-EOF
-#check default values for mongodb in the bitnami chart:
-helm template pacman . -f values-override.yaml | grep -i "bitnami"
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
+helm install pacman . -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
 echo ""
 echo -e "\033[0;32m Pacman is now installed, but you may need additional time to access it so it gets a valid network access with nginx (depending on you local machine resources)\e[0m"
 sleep 2
@@ -529,7 +519,6 @@ Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
 # Finish
 rm get_helm.sh
-rm k10primer.yaml
 clear
 echo ""
 echo ""

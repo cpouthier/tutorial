@@ -69,7 +69,7 @@ chmod +x ./get_helm.sh
 ## Install Kubectl
 Then we need to install Kubectl which is the command line tool to communicate with Kubernetes and add autocompletion in bash. We'll also add an alias (k) to simplify further interaction in bash:
 ```console
-curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
 chmod +x ./kubectl
 sudo mv ./kubectl /usr/local/bin/kubectl
 echo 'source <(kubectl completion bash)' >>~/.bashrc
@@ -153,8 +153,6 @@ MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --co
 echo "@reboot MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --console-address ":9001"" > /root/minio_cron
 crontab /root/minio_cron
 get_ip=$(hostname -I | awk '{print $1}')
-chmod +x $HOME/minio-binaries/mc
-export PATH=$PATH:$HOME/minio-binaries/
 curl https://dl.min.io/client/mc/release/linux-amd64/mc \
   --create-dirs \
   -o $HOME/minio-binaries/mc
@@ -536,7 +534,6 @@ Pacman is accessible at http://$get_ip
 Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
 rm get_helm.sh
-rm k10primer.yaml
 clear
 echo ""
 echo ""
