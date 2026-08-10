@@ -11,6 +11,7 @@
 #   Install Kasten K10 and expose the dashboard over HTTPS (nginx-ingress + cert-manager + Let's Encrypt)
 #   Create one location profile for each Minio bucket
 #   Install S3UI (a web UI for Minio) and expose it over HTTPS
+#   (Optional) Install the Addressbook demo app (name+address form on a 1Gi PVC) and expose it over HTTPS
 #
 # Set the ubuntu service restart under apt to automatic
 clear
@@ -44,6 +45,8 @@ echo -e "\033[0;31m Customize the name you would like to use for the storage cla
 read sc_name < /dev/tty
 echo -e "\033[0;31m Enter an email address (used for Let's Encrypt expiry notices and the Kasten EULA): \e[0m"
 read admin_email < /dev/tty
+echo -e "\033[0;31m (Optional) Deploy the Addressbook demo app too? A minimal name+address form backed by a 1Gi PVC, handy to test Kasten backup/restore on a small stateful app (y/n): \e[0m"
+read deploy_addressbook < /dev/tty
 echo ""
 
 # Install Helm
@@ -492,6 +495,147 @@ echo ""
 echo -e "\033[0;32m S3UI installed!\e[0m"
 sleep 2
 
+# (Optional) Install the Addressbook demo app — a minimal name+address form
+# backed by a 1Gi PVC, good for trying out Kasten backup/restore on a small
+# stateful app without the moving parts of a full database Deployment.
+if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
+  clear
+  echo "Installing Addressbook"
+  sleep 2
+
+  addressbook_nip_host="addressbook.$(echo $get_ip | tr '.' '-').nip.io"
+
+  # Namespace + PVC + Deployment + Service + Ingress, reusing the same
+  # nginx-ingress + cert-manager + letsencrypt-prod ClusterIssuer already set
+  # up for Kasten above. The "database" is a single SQLite file on the PVC —
+  # no separate DB Deployment/Service/Secret needed.
+  echo | kubectl apply -f - << EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: addressbook
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: addressbook-data
+  namespace: addressbook
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: $sc_name
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: addressbook
+  namespace: addressbook
+spec:
+  # Recreate, not the default RollingUpdate: the PVC is ReadWriteOnce, so a
+  # second pod can't mount it until the first one releases it — RollingUpdate
+  # would leave a new pod stuck Pending on volume attach forever.
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: addressbook
+  template:
+    metadata:
+      labels:
+        app: addressbook
+    spec:
+      containers:
+        - name: addressbook
+          image: cpouthier/addressbook:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_PATH
+              value: /data/addressbook.db
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: addressbook-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: addressbook
+  namespace: addressbook
+spec:
+  selector:
+    app: addressbook
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: addressbook-ingress
+  namespace: addressbook
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - $addressbook_nip_host
+      secretName: addressbook-tls-letsencrypt
+  rules:
+    - host: $addressbook_nip_host
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: addressbook
+                port:
+                  number: 80
+EOF
+
+  kubectl -n addressbook rollout status deployment/addressbook --timeout=120s
+
+  echo "Waiting for the Let's Encrypt certificate for Addressbook (can take 1-2 minutes)..."
+  for i in $(seq 1 30); do
+    kubectl -n addressbook get secret addressbook-tls-letsencrypt >/dev/null 2>&1 && break
+    sleep 5
+  done
+  kubectl -n addressbook get certificate
+
+  echo ""
+  echo -e "\033[0;32m Addressbook installed!\e[0m"
+  sleep 2
+fi
+
 # Save credentials and URLs for further reference
 cat <<EOF > credentials
 Kasten k10 can be accessed on https://$nip_host/k10/#/ using credentials ($username/$password)
@@ -502,6 +646,9 @@ Minio console is available on  http://$get_ip:9001, with the same username/passw
 S3UI (a web UI for Minio) can be accessed on https://$s3ui_nip_host using the same credentials ($username/$password)
 Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
+if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
+  echo "Addressbook (demo app) is accessible at https://$addressbook_nip_host" >> credentials
+fi
 # Finish
 rm get_helm.sh
 clear
@@ -517,6 +664,9 @@ echo "    Minio has been configured with 1 bucket and according location profile
 echo "        - s3-standard"
 echo "    It can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
 echo "S3UI (a web UI for Minio) can be accessed on https://$s3ui_nip_host using the same credentials ($username/$password)"
+if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
+  echo "Addressbook (demo app) is accessible at https://$addressbook_nip_host"
+fi
 echo "Your storage class name is $sc_name on this cluster $cluster_name"
 
 echo "NOTE: All these informations are stored in the "credentials" file in this directory."

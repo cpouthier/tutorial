@@ -48,7 +48,7 @@ echo -e "\033[0;31m Enter partition path of extra volume (ie /dev/sdbx) to set u
 read DRIVE < /dev/tty
 ```
 
-Additionnaly specify the name of this cluster, the storage class name you wish to customize, and an email address (used for Let's Encrypt expiry notices and the Kasten EULA).
+Additionnaly specify the name of this cluster, the storage class name you wish to customize, an email address (used for Let's Encrypt expiry notices and the Kasten EULA), and whether you also want to deploy the optional Addressbook demo app (see [Install the Addressbook demo app](#optional-install-the-addressbook-demo-app) below).
 
 ```console
 echo -e "\033[0;31m Enter name of this cluster: \e[0m"
@@ -57,6 +57,8 @@ echo -e "\033[0;31m Customize the name you would like to use for the storage cla
 read sc_name < /dev/tty
 echo -e "\033[0;31m Enter an email address (used for Let's Encrypt expiry notices and the Kasten EULA): \e[0m"
 read admin_email < /dev/tty
+echo -e "\033[0;31m (Optional) Deploy the Addressbook demo app too? A minimal name+address form backed by a 1Gi PVC, handy to test Kasten backup/restore on a small stateful app (y/n): \e[0m"
+read deploy_addressbook < /dev/tty
 echo ""
 ```
 
@@ -490,6 +492,142 @@ done
 kubectl -n s3ui get certificate
 ```
 
+# (Optional) Install the Addressbook demo app
+A deliberately minimal app: a page with a "Name" + "Postal address" form, every stored entry listed right below on the same page, and buttons to clear the database or reset it back to 10 pre-populated fictitious entries. Its "database" is a single SQLite file on its own 1Gi PVC — no separate database Deployment/Service/Secret — which makes it a small, easy-to-understand stateful workload for trying out Kasten backup/restore without the moving parts of a full database.
+
+This step only runs if you answered `y` to the Addressbook prompt above:
+```console
+if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
+  addressbook_nip_host="addressbook.$(echo $get_ip | tr '.' '-').nip.io"
+```
+## Deploy the Namespace, PVC, Deployment, Service and Ingress
+Reuses the same `letsencrypt-prod` ClusterIssuer and `nginx-ingress` already set up for Kasten and S3UI above, and the `$sc_name` storage class created earlier:
+```console
+  echo | kubectl apply -f - << EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: addressbook
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: addressbook-data
+  namespace: addressbook
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: $sc_name
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: addressbook
+  namespace: addressbook
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: addressbook
+  template:
+    metadata:
+      labels:
+        app: addressbook
+    spec:
+      containers:
+        - name: addressbook
+          image: cpouthier/addressbook:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_PATH
+              value: /data/addressbook.db
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: addressbook-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: addressbook
+  namespace: addressbook
+spec:
+  selector:
+    app: addressbook
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: addressbook-ingress
+  namespace: addressbook
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - $addressbook_nip_host
+      secretName: addressbook-tls-letsencrypt
+  rules:
+    - host: $addressbook_nip_host
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: addressbook
+                port:
+                  number: 80
+EOF
+```
+`strategy: Recreate` (not the default `RollingUpdate`) is required because the PVC is `ReadWriteOnce` — a second pod can't mount it until the first one releases it, so a rolling update would otherwise leave a new pod stuck `Pending` forever.
+
+## Wait for it to be ready
+```console
+  kubectl -n addressbook rollout status deployment/addressbook --timeout=120s
+
+  echo "Waiting for the Let's Encrypt certificate for Addressbook (can take 1-2 minutes)..."
+  for i in $(seq 1 30); do
+    kubectl -n addressbook get secret addressbook-tls-letsencrypt >/dev/null 2>&1 && break
+    sleep 5
+  done
+  kubectl -n addressbook get certificate
+fi
+```
+
 # Final stage
 We will now save all credentials and URLs in a file for further reference and clean up
 ```console
@@ -502,6 +640,9 @@ Minio console is available on  http://$get_ip:9001, with the same username/passw
 S3UI (a web UI for Minio) can be accessed on https://$s3ui_nip_host using the same credentials ($username/$password)
 Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
+if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
+  echo "Addressbook (demo app) is accessible at https://$addressbook_nip_host" >> credentials
+fi
 rm get_helm.sh
 clear
 echo ""
@@ -516,6 +657,9 @@ echo "    Minio has been configured with 1 bucket and according location profile
 echo "        - s3-standard"
 echo "    It can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
 echo "S3UI (a web UI for Minio) can be accessed on https://$s3ui_nip_host using the same credentials ($username/$password)"
+if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
+  echo "Addressbook (demo app) is accessible at https://$addressbook_nip_host"
+fi
 echo "Your storage class name is $sc_name on this cluster $cluster_name"
 ```
 # One more thing...
