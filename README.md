@@ -48,13 +48,15 @@ echo -e "\033[0;31m Enter partition path of extra volume (ie /dev/sdbx) to set u
 read DRIVE < /dev/tty
 ```
 
-Additionnaly specify the name of this cluster and the storage class name you wish to customize.
+Additionnaly specify the name of this cluster, the storage class name you wish to customize, and an email address (used for Let's Encrypt expiry notices and the Kasten EULA).
 
 ```console
 echo -e "\033[0;31m Enter name of this cluster: \e[0m"
 read cluster_name < /dev/tty
 echo -e "\033[0;31m Customize the name you would like to use for the storage class: \e[0m"
 read sc_name < /dev/tty
+echo -e "\033[0;31m Enter an email address (used for Let's Encrypt expiry notices and the Kasten EULA): \e[0m"
+read admin_email < /dev/tty
 echo ""
 ```
 
@@ -74,7 +76,7 @@ chmod +x ./kubectl
 sudo mv ./kubectl /usr/local/bin/kubectl
 echo 'source <(kubectl completion bash)' >>~/.bashrc
 source <(kubectl completion bash)
-echo "alias k=kubectl" | tee -a .bashrc /root/.bashrc
+echo "alias k=kubectl" | tee -a /root/.bashrc
 alias k=kubectl
 ```
 # Installing K3s
@@ -98,11 +100,17 @@ As already said, we will configure a ZFS storage pool which will provide snapsho
 ### Install zfs and configure kasten-pool storage pool on associated drive
 ```console
 apt install zfsutils-linux open-iscsi jq -y
-zpool create kasten-pool $DRIVE
+if ! zpool create kasten-pool "$DRIVE"; then
+  echo -e "\033[0;31m ERROR: zpool create failed on $DRIVE — check the drive path (fdisk -l above) and re-run this script.\e[0m"
+  exit 1
+fi
 ```
 ### Configure zfs storage class
 ```console
 kubectl apply -f https://openebs.github.io/charts/zfs-operator.yaml
+echo "Waiting for the ZFS CSI driver pods to be ready..."
+kubectl wait --for=condition=ready pod -l app=openebs-zfs-controller -n kube-system --timeout=120s
+kubectl wait --for=condition=ready pod -l app=openebs-zfs-node -n kube-system --timeout=120s
 echo | kubectl apply -f - << EOF
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -125,7 +133,7 @@ apiVersion: snapshot.storage.k8s.io/v1
 metadata:
   name: $sc_name-zfs-snapclass
   annotations:
-    snapshot.storage.kubernetes.io/is-default-class: “true”
+    snapshot.storage.kubernetes.io/is-default-class: "true"
     k10.kasten.io/is-snapshot-class: "true"
 driver: zfs.csi.openebs.io
 deletionPolicy: Delete
@@ -153,26 +161,26 @@ MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --co
 echo "@reboot MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --console-address ":9001"" > /root/minio_cron
 crontab /root/minio_cron
 get_ip=$(hostname -I | awk '{print $1}')
-curl https://dl.min.io/client/mc/release/linux-amd64/mc \
+curl -L https://dl.min.io/client/mc/release/linux-amd64/mc \
   --create-dirs \
   -o $HOME/minio-binaries/mc
 chmod +x $HOME/minio-binaries/mc
 export PATH=$PATH:$HOME/minio-binaries/
-mc alias set my-minio http://127.0.0.1:9000 $username $password
 ```
-## (Optional) Buckets creation
-With the commands below, you can optionnaly create some buckets we will use and configure in Kasten automatically, let's start by creating a my-minio alias :
+A bad download (e.g. a redirect page saved instead of the real `mc` binary) fails silently otherwise, so we validate it before using it:
 ```console
+if ! $HOME/minio-binaries/mc --version >/dev/null 2>&1; then
+  echo -e "\033[0;31m ERROR: the downloaded mc binary isn't valid — check your network/proxy and re-run this script.\e[0m"
+  exit 1
+fi
+
 mc alias set my-minio http://127.0.0.1:9000 $username $password
 ```
+## (Optional) Bucket creation
+With the command below, you can optionnaly create the bucket we will use and configure in Kasten automatically. The `my-minio` alias was already created above.
 We will create now a standard S3 bucket:
 ```console
 mc mb my-minio/s3-standard-$cluster_name
-```
-And an immutable bucket:
-```console
-mc mb --with-lock my-minio/s3-immutable-$cluster_name
-mc retention set --default COMPLIANCE "180d" my-minio/s3-immutable-$cluster_name
 ```
 # Veeam Kasten installation
 This is actually my favourite part!
@@ -199,12 +207,72 @@ helm install k10 kasten/k10 --namespace kasten-io --set "auth.basicAuth.enabled=
 ```
 Other Helm options are available here: https://docs.kasten.io/latest/install/advanced.html?highlight=advanced#complete-list-of-k10-helm-options
 
-We will now find the Kasten gateway pod name and expose it:
+Before going further, wait for all Kasten pods to become ready:
 ```console
-pod=$(kubectl get po -n kasten-io |grep gateway | awk '{print $1}' )
-kubectl expose po $pod -n kasten-io --type=LoadBalancer --port=8000 --name=k10-dashboard
+until [ "$(kubectl get pods -n kasten-io --no-headers 2>/dev/null | wc -l)" -gt 0 ]; do
+  sleep 2
+done
+kubectl wait --for=condition=ready pod --all -n kasten-io --timeout=600s
 ```
-And setup the Kasten ingress:
+## Expose Kasten over HTTPS
+Kasten's auth cookie has the `Secure` flag, so login only works over real HTTPS — plain HTTP access via a LoadBalancer on port 8000 (and a `kasten.local` host that doesn't resolve anywhere) causes an infinite auth redirect loop: basic-auth succeeds, but the session cookie is never stored/sent back.
+
+Instead, we terminate TLS via nginx-ingress with a real Let's Encrypt certificate (cert-manager), using a [nip.io](https://nip.io) hostname that resolves to your server's IP automatically — no domain to buy, no `/etc/hosts` entry to add on every client.
+```console
+nip_host="kasten.$(echo $get_ip | tr '.' '-').nip.io"
+```
+### Install cert-manager
+```console
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm upgrade --install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --set installCRDs=true
+kubectl -n cert-manager rollout status deployment/cert-manager --timeout=180s
+kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=180s
+kubectl -n cert-manager rollout status deployment/cert-manager-cainjector --timeout=180s
+```
+### Create the Let's Encrypt ClusterIssuer
+This uses the HTTP-01 challenge, served through nginx:
+```console
+echo | kubectl apply -f - << EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: $admin_email
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+EOF
+```
+### Allow the cert-manager HTTP-01 solver through Kasten's NetworkPolicy
+Kasten's Helm chart ships a "default-deny" NetworkPolicy for its own namespace (security hardening). cert-manager's HTTP-01 solver pod gets created in this same namespace (since that's where the Ingress below lives), so it inherits that deny and its challenge gets silently blocked unless explicitly allowed — without this, the certificate request hangs in "pending" forever with a "connection refused" on the solver pod.
+```console
+echo | kubectl apply -f - << EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cert-manager-http01-solver
+  namespace: kasten-io
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - {}
+EOF
+```
+### Set up the Kasten ingress
+This uses the real nip.io hostname, reachable from anywhere with no client-side DNS/hosts configuration:
 ```console
 echo | kubectl apply -f - << EOF
 apiVersion: networking.k8s.io/v1
@@ -212,9 +280,16 @@ kind: Ingress
 metadata:
   name: k10-ingress
   namespace: kasten-io
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - $nip_host
+      secretName: kasten-tls-letsencrypt
   rules:
-    - host: kasten.local
+    - host: $nip_host
       http:
         paths:
           - pathType: Prefix
@@ -225,6 +300,14 @@ spec:
                 port:
                   number: 8000
 EOF
+```
+Wait for Let's Encrypt to issue the certificate (can take 1-2 minutes):
+```console
+for i in $(seq 1 30); do
+  kubectl -n kasten-io get secret kasten-tls-letsencrypt >/dev/null 2>&1 && break
+  sleep 5
+done
+kubectl -n kasten-io get certificate kasten-tls-letsencrypt
 ```
 ## (Optional) Pre-populate Kasten
 
@@ -238,7 +321,7 @@ apiVersion: v1
 data:
   accepted: "true"
   company: MyBigCompany
-  email: my_email@mybigcompany.fr
+  email: $admin_email
 kind: ConfigMap
 metadata:
   name: k10-eula-info
@@ -281,256 +364,142 @@ spec:
       secretType: AwsAccessKey
       secret:
         apiVersion: v1
-        kind: secret
+        kind: Secret
         name: k10-s3-secret-minio
         namespace: kasten-io
   type: Location
 EOF
 ```
 
-#### Create Location profile for Minio immutable bucket
+# Install S3UI
+S3UI is a small web UI to browse and manage Minio buckets from a browser, handy since Minio's own console isn't always convenient to expose. We'll deploy it on the same K3s cluster and expose it over HTTPS the same way as Kasten, reusing the `letsencrypt-prod` ClusterIssuer and `nginx-ingress` already set up above (ClusterIssuers aren't namespaced, so there's nothing to recreate).
+```console
+s3ui_nip_host="s3ui.$(echo $get_ip | tr '.' '-').nip.io"
+```
+## Deploy the Namespace, Deployment, Service and Ingress
 ```console
 echo | kubectl apply -f - << EOF
-apiVersion: config.kio.kasten.io/v1alpha1
-kind: Profile
+apiVersion: v1
+kind: Namespace
 metadata:
-  name: s3-immutable-bucket-$cluster_name
-  namespace: kasten-io
+  name: s3ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3ui
+  namespace: s3ui
 spec:
-  locationSpec:
-    objectStore:
-      objectStoreType: S3
-      name: s3-immutable-$cluster_name
-      region: eu
-      endpoint: http://$get_ip:9000
-      skipSSLVerify: true
-      protectionPeriod: 2160h
-    type: ObjectStore
-    credential:
-      secretType: AwsAccessKey
-      secret:
-        apiVersion: v1
-        kind: secret
-        name: k10-s3-secret-minio
-        namespace: kasten-io
-  type: Location
-EOF
-```
-
-### Enable Kasten daily reports
-```console
-echo | kubectl apply -f - << EOF
-kind: Policy
-apiVersion: config.kio.kasten.io/v1alpha1
-metadata:
-  name: k10-system-reports-policy
-  namespace: kasten-io
-  managedFields:
-    - manager: controllermanager-server
-      operation: Update
-      apiVersion: config.kio.kasten.io/v1alpha1
-      fieldsType: FieldsV1
-      fieldsV1:
-        f:status:
-          f:hash: {}
-          f:specModifiedTime: {}
-          f:validation: {}
-    - manager: dashboardbff-server
-      operation: Update
-      apiVersion: config.kio.kasten.io/v1alpha1
-      fieldsType: FieldsV1
-      fieldsV1:
-        f:spec:
-          .: {}
-          f:actions: {}
-          f:comment: {}
-          f:createdBy: {}
-          f:frequency: {}
-          f:lastModifyHash: {}
-          f:selector: {}
-        f:status: {}
-spec:
-  comment: The policy for enabling auto-generated reports.
-  frequency: "@daily"
-  selector: {}
-  actions:
-    - action: report
-      reportParameters:
-        statsIntervalDays: 1
-EOF
-```
-# (Optional) Install Pacman application
-You can now install an application to test Kasten backup/restore operations. We will use a simple pacman game application which contains also a MongoDB.
-```console
-helm repo add pacman https://shuguet.github.io/pacman/
-helm install pacman pacman/pacman -n pacman --create-namespace --set ingress.create=true --set ingress.class=nginx
-```
-This application will be exposed on the web on port 80 of your server.
-## Create a daily backup policy for pacman
-This policy will create a dayly backup of pacman in crash consistent mode. Kasten is also able to manage application consistent backup with the use of blueprints (pre-snapshot and post- snapshot hooks) but this is not detailed (useful) in this example.
-### Create a MongoDB blueprint to allow constitent backup
-```console
-echo | kubectl apply -f - << EOF
-kind: Blueprint
-apiVersion: cr.kanister.io/v1alpha1
-metadata:
-  name: mongo-hooks
-  namespace: kasten-io
-actions:
-  backupPosthook:
-    name: ""
-    kind: ""
-    phases:
-      - func: KubeExec
-        name: unlockMongo
-        objects:
-          mongoDbSecret:
-            apiVersion: ""
-            group: ""
-            resource: ""
-            kind: Secret
-            name: "{{ .Deployment.Name }}"
-            namespace: "{{ .Deployment.Namespace }}"
-        args:
-          command:
-            - bash
-            - -o
-            - errexit
-            - -o
-            - pipefail
-            - -c
-            - >
-              export MONGODB_ROOT_PASSWORD='{{ index
-              .Phases.unlockMongo.Secrets.mongoDbSecret.Data
-              "mongodb-root-password" | toString }}'
- 
-              mongosh --authenticationDatabase admin -u root -p
-              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncUnlock()"
-          container: mongodb
-          namespace: "{{ .Deployment.Namespace }}"
-          pod: "{{ index .Deployment.Pods 0 }}"
-  backupPrehook:
-    name: ""
-    kind: ""
-    phases:
-      - func: KubeExec
-        name: lockMongo
-        objects:
-          mongoDbSecret:
-            apiVersion: ""
-            group: ""
-            resource: ""
-            kind: Secret
-            name: "{{ .Deployment.Name }}"
-            namespace: "{{ .Deployment.Namespace }}"
-        args:
-          command:
-            - bash
-            - -o
-            - errexit
-            - -o
-            - pipefail
-            - -c
-            - >
-              export MONGODB_ROOT_PASSWORD='{{ index
-              .Phases.lockMongo.Secrets.mongoDbSecret.Data
-              "mongodb-root-password" | toString }}'
- 
-              mongosh --authenticationDatabase admin -u root -p
-              "${MONGODB_ROOT_PASSWORD}" --eval="db.fsyncLock()"
-          container: mongodb
-          namespace: "{{ .Deployment.Namespace }}"
-          pod: "{{ index .Deployment.Pods 0 }}"
-EOF
-```
-### Create a Blueprint Binding to automatically bind the MongoDB Blueprint to the MongoDB database
-
-```console
-echo | kubectl apply -f - << EOF
-apiVersion: config.kio.kasten.io/v1alpha1
-kind: BlueprintBinding
-metadata:
-  name: mongodb-binding
-  namespace: kasten-io
-spec:
-  blueprintRef:
-    name: mongo-hooks
-    namespace: kasten-io
-  resources:
-    matchAll:
-    - type:
-        operator: In
-        values:
-        - group: apps
-          resource: deployments
-    - annotations:
-        key: kanister.kasten.io/blueprint
-        operator: DoesNotExist
-    - labels:
-        key: app.kubernetes.io/managed-by
-        operator: In
-        values:
-        - Helm
-    - labels:
-        key: app.kubernetes.io/name
-        operator: In
-        values:
-        - mongodb
-EOF
-```
-### Create the baclup policy for Pacman
-
-```console
-echo | kubectl apply -f - << EOF
-apiVersion: config.kio.kasten.io/v1alpha1
-kind: Policy
-metadata:
-  name: pacman-backup
-  namespace: kasten-io
-spec:
-  comment: ""
-  frequency: "@daily"
-  paused: false
-  actions:
-    - action: backup
-    - action: export
-      exportParameters:
-        frequency: "@daily"
-        migrationToken:
-          name: ""
-          namespace: ""
-        profile:
-          name: s3-standard-bucket-$cluster_name
-          namespace: kasten-io
-        receiveString: ""
-        exportData:
-          enabled: true
-  retention:
-    daily: 7
-    weekly: 0
-    monthly: 0
-    yearly: 0
+  replicas: 1
   selector:
-    matchExpressions:
-      - key: k10.kasten.io/appNamespace
-        operator: In
-        values:
-          - pacman
-  subFrequency: null
+    matchLabels:
+      app: s3ui
+  template:
+    metadata:
+      labels:
+        app: s3ui
+    spec:
+      containers:
+        - name: s3ui
+          image: cpouthier/s3ui:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: s3ui-config
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3ui
+  namespace: s3ui
+spec:
+  selector:
+    app: s3ui
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: s3ui-ingress
+  namespace: s3ui
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - $s3ui_nip_host
+      secretName: s3ui-tls-letsencrypt
+  rules:
+    - host: $s3ui_nip_host
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: s3ui
+                port:
+                  number: 80
 EOF
+```
+The Service is `ClusterIP` rather than `LoadBalancer`: this VM has no MetalLB, and `nginx-ingress` already owns the node's public IP on 80/443, so we route to S3UI through the Ingress instead of requesting a second LoadBalancer IP.
+## Wire up S3UI with the Minio credentials
+We reuse the same Minio credentials already used above for Kasten's location profile (`$minio_access_key_id` / `$minio_access_key_secret`) — a single source of truth, nothing to duplicate by hand:
+```console
+kubectl create secret generic s3ui-config -n s3ui \
+  --from-literal=MINIO_ENDPOINT="${get_ip}:9000" \
+  --from-literal=MINIO_ACCESS_KEY="${minio_access_key_id}" \
+  --from-literal=MINIO_SECRET_KEY="${minio_access_key_secret}" \
+  --from-literal=MINIO_SECURE=false \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n s3ui rollout restart deployment/s3ui
+kubectl -n s3ui rollout status deployment/s3ui --timeout=120s
+```
+Wait for Let's Encrypt to issue the certificate (can take 1-2 minutes):
+```console
+for i in $(seq 1 30); do
+  kubectl -n s3ui get secret s3ui-tls-letsencrypt >/dev/null 2>&1 && break
+  sleep 5
+done
+kubectl -n s3ui get certificate
 ```
 
 # Final stage
 We will now save all credentials and URLs in a file for further reference and clean up
 ```console
 cat <<EOF > credentials
-Kasten k10 can be accessed on http://$get_ip:8000/k10/#/ using credentials ($username/$password)
+Kasten k10 can be accessed on https://$nip_host/k10/#/ using credentials ($username/$password)
 Minio console is available on  http://$get_ip:9001, with the same username/password.
-    Minio has been configured with 2 buckets and according location profiles have been created in Kasten::
+    Minio has been configured with 1 bucket and according location profile has been created in Kasten:
         - s3-standard
-        - s3-immutable (compliance 180 days)
-    Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)
-Pacman is accessible at http://$get_ip
+    It can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)
+S3UI (a web UI for Minio) can be accessed on https://$s3ui_nip_host using the same credentials ($username/$password)
 Your storage class name is $sc_name on this cluster $cluster_name.
 EOF
 rm get_helm.sh
@@ -541,13 +510,12 @@ echo -e "\033[0;32m Congratulations\e[0m"
 echo -e "\033[0;32m You can now use Veeam Kasten and all its features!\e[0m"
 echo ""
 echo ""
-echo "Kasten k10 can be accessed on http://$get_ip:8000/k10/#/ using credentials ($username/$password)."
+echo "Kasten k10 can be accessed on https://$nip_host/k10/#/ using credentials ($username/$password)."
 echo "Minio console is available on  http://$get_ip:9001, with the same username/password."
-echo "    Minio has been configured with 2 buckets and according location profiles have been created in Kasten:"
+echo "    Minio has been configured with 1 bucket and according location profile has been created in Kasten:"
 echo "        - s3-standard"
-echo "        - s3-immutable (compliance 180 days)"
-echo "    Both of them can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
-echo "Pacman is accessible at http://$get_ip"
+echo "    It can be accessed through API on http://$get_ip:9000 using credentials ($username/$password)"
+echo "S3UI (a web UI for Minio) can be accessed on https://$s3ui_nip_host using the same credentials ($username/$password)"
 echo "Your storage class name is $sc_name on this cluster $cluster_name"
 ```
 # One more thing...
