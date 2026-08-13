@@ -113,6 +113,10 @@ MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --co
 echo "@reboot MINIO_ROOT_USER=$username MINIO_ROOT_PASSWORD=$password minio server /minio --console-address ":9001"" > /root/minio_cron
 crontab /root/minio_cron
 get_ip=$(hostname -I | awk '{print $1}')
+if [ -z "$get_ip" ]; then
+  echo -e "\033[0;31m ERROR: could not detect this machine's IP address (hostname -I returned nothing) — check networking and re-run this script.\e[0m"
+  exit 1
+fi
 curl -L https://dl.min.io/client/mc/release/linux-amd64/mc \
   --create-dirs \
   -o $HOME/minio-binaries/mc

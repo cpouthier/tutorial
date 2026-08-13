@@ -495,9 +495,8 @@ kubectl -n s3ui get certificate
 # (Optional) Install the Addressbook demo app
 A deliberately minimal app: a page with a "Name" + "Postal address" form, every stored entry listed right below on the same page, and buttons to clear the database or reset it back to 10 pre-populated fictitious entries. Its "database" is a single SQLite file on its own 1Gi PVC — no separate database Deployment/Service/Secret — which makes it a small, easy-to-understand stateful workload for trying out Kasten backup/restore without the moving parts of a full database.
 
-This step only runs if you answered `y` to the Addressbook prompt above:
+This step shoulb be rune only if you answered `y` to the Addressbook prompt above:
 ```console
-if [[ "$deploy_addressbook" =~ ^[Yy]$ ]]; then
   addressbook_nip_host="addressbook.$(echo $get_ip | tr '.' '-').nip.io"
 ```
 ## Deploy the Namespace, PVC, Deployment, Service and Ingress
@@ -625,7 +624,6 @@ EOF
     sleep 5
   done
   kubectl -n addressbook get certificate
-fi
 ```
 
 # Final stage
